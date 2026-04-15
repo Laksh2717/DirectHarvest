@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: directharvest-db
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - directharvest-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: directharvest-backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_PROFILES_ACTIVE: prod
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - directharvest-net
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # In production this should be your EC2 public IP or domain.
+        # Example: http://13.233.xx.xx/api  or  http://yourdomain.com/api
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: ${NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}
+    container_name: directharvest-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    networks:
+      - directharvest-net
+
+volumes:
+  db_data:
+
+networks:
+  directharvest-net:
+    driver: bridge
