@@ -20,8 +20,7 @@ services:
       retries: 5
 
   backend:
-    build:
-      context: ./backend
+    image: laksh2717/backend:latest
     container_name: directharvest-backend
     restart: always
     env_file:
@@ -40,13 +39,7 @@ services:
       - directharvest-net
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        # In production this should be your EC2 public IP or domain.
-        # Example: http://13.233.xx.xx/api  or  http://yourdomain.com/api
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: ${NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}
+    image: laksh2717/frontend:latest
     container_name: directharvest-frontend
     restart: always
     depends_on:
