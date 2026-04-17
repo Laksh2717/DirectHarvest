@@ -25,6 +25,7 @@ import com.directharvest.backend.orders.entity.Order;
 import com.directharvest.backend.orders.repository.OrderRepository;
 import com.directharvest.backend.users.entity.User;
 import com.directharvest.backend.users.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -48,19 +49,22 @@ public class NegotiationService {
     private final OrderRepository orderRepository;
     private final ListingRepository listingRepository;
     private final UserRepository userRepository;
+    private final EntityManager entityManager;
 
     public NegotiationService(
             NegotiationRepository negotiationRepository,
             NegotiationEventRepository negotiationEventRepository,
             OrderRepository orderRepository,
             ListingRepository listingRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            EntityManager entityManager
     ) {
         this.negotiationRepository = negotiationRepository;
         this.negotiationEventRepository = negotiationEventRepository;
         this.orderRepository = orderRepository;
         this.listingRepository = listingRepository;
         this.userRepository = userRepository;
+        this.entityManager = entityManager;
     }
 
     @Transactional
@@ -126,6 +130,8 @@ public class NegotiationService {
         negotiation.setExpiresAt(Instant.now().plus(NEGOTIATION_EXPIRY_WINDOW));
 
         Negotiation saved = negotiationRepository.save(negotiation);
+        entityManager.flush();
+        entityManager.refresh(saved);
         recordEvent(saved, currentUser, NegotiationEventType.COUNTERED);
         return toResponse(saved);
     }
@@ -145,6 +151,8 @@ public class NegotiationService {
         negotiation.setStatus(NegotiationStatus.ACCEPTED);
         Negotiation savedNegotiation = negotiationRepository.save(negotiation);
         listingRepository.save(listing);
+        entityManager.flush();
+        entityManager.refresh(savedNegotiation);
         recordEvent(savedNegotiation, currentUser, NegotiationEventType.ACCEPTED);
         createOrderIfMissing(savedNegotiation);
         return toResponse(savedNegotiation);
@@ -162,6 +170,8 @@ public class NegotiationService {
         negotiation.setCancelledBy(currentUser.getRole());
         negotiation.setCancellationReason(trimToNull(request == null ? null : request.cancellationReason()));
         Negotiation saved = negotiationRepository.save(negotiation);
+        entityManager.flush();
+        entityManager.refresh(saved);
         recordEvent(saved, currentUser, NegotiationEventType.REJECTED);
         return toResponse(saved);
     }
@@ -271,6 +281,11 @@ public class NegotiationService {
     }
 
     private NegotiationResponse toResponse(Negotiation negotiation) {
+        // Get latest event values to ensure we always show the most recent counter-offer values
+        NegotiationEvent latestEvent = getLatestEvent(negotiation);
+        BigDecimal offerPrice = latestEvent != null ? latestEvent.getOfferedPrice() : negotiation.getOfferedPrice();
+        BigDecimal reqQuantity = latestEvent != null ? latestEvent.getRequestedQuantity() : negotiation.getRequestedQuantity();
+        
         return new NegotiationResponse(
                 negotiation.getId(),
                 negotiation.getListing().getId(),
@@ -281,8 +296,8 @@ public class NegotiationService {
                 negotiation.getFarmer().getId(),
                 negotiation.getFarmer().getName(),
             negotiation.getFarmer().getEmail(),
-                negotiation.getOfferedPrice(),
-                negotiation.getRequestedQuantity(),
+                offerPrice,
+                reqQuantity,
                 negotiation.getStatus(),
                 negotiation.getProposedBy(),
                 negotiation.getCancellationReason(),
@@ -291,6 +306,11 @@ public class NegotiationService {
                 negotiation.getCreatedAt(),
                 negotiation.getUpdatedAt()
         );
+    }
+    
+    private NegotiationEvent getLatestEvent(Negotiation negotiation) {
+        List<NegotiationEvent> events = negotiationEventRepository.findAllByNegotiationIdOrderByCreatedAtAsc(negotiation.getId());
+        return events.isEmpty() ? null : events.get(events.size() - 1);
     }
 
     private String trimToNull(String value) {

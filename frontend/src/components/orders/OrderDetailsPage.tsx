@@ -191,7 +191,7 @@ export default function OrderDetailsPage({ role, viewType }: OrderDetailsPagePro
                 </div>
             </div>
 
-            <OrderNegotiationTimeline negotiations={order.negotiations} role={role} acceptedBy={acceptedBy} />
+            <OrderNegotiationTimeline negotiations={order.negotiations} role={role} viewType={viewType} acceptedBy={acceptedBy} cancelledBy={cancelledByLabel} />
 
             {viewType === "active" ? (
                 <>

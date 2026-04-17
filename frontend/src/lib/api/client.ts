@@ -54,6 +54,9 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
         return config;
     }
 
+    // Add cache control headers to prevent stale data in production
+    config.headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+
     if (sessionService.getActiveRole() && sessionService.shouldRefreshAccessToken()) {
         await refreshAccessToken();
     }

@@ -99,8 +99,10 @@ export function useNegotiationDetailsModal({ open, negotiationId, role, onClose,
     }, [negotiation, role]);
 
     const actionModalOpen = acceptOpen || rejectOpen || counterOpen;
-    const currentPrice = negotiation?.offeredPrice ?? 0;
-    const currentQty = negotiation?.requestedQuantity ?? 0;
+    // Use latest event values for current price/qty to ensure we always show the most recent counter-offer
+    const latestEvent = history.length > 0 ? history[history.length - 1] : null;
+    const currentPrice = latestEvent?.offeredPrice ?? negotiation?.offeredPrice ?? 0;
+    const currentQty = latestEvent?.requestedQuantity ?? negotiation?.requestedQuantity ?? 0;
 
     const closeActionModals = useCallback(() => {
         if (!actionLoading) {

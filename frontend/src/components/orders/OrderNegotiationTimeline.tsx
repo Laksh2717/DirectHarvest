@@ -5,10 +5,15 @@ import type { OrderNegotiationEntry } from "@/types/order";
 interface OrderNegotiationTimelineProps {
   negotiations: OrderNegotiationEntry[];
   role: "buyer" | "farmer";
+  viewType?: "active" | "completed" | "cancelled";
   acceptedBy: string;
+  cancelledBy?: string;
 }
 
-export default function OrderNegotiationTimeline({ negotiations, role, acceptedBy }: OrderNegotiationTimelineProps) {
+export default function OrderNegotiationTimeline({ negotiations, role, viewType, acceptedBy, cancelledBy }: OrderNegotiationTimelineProps) {
+  const isOrderCancelled = viewType === "cancelled";
+  const finalStatus = isOrderCancelled ? cancelledBy : acceptedBy;
+  const finalStatusLabel = isOrderCancelled ? "Cancelled by" : "Accepted by";
   return (
     <div className="rounded-2xl border border-border bg-card p-6 shadow-(--shadow-card)">
       <h2 className="text-2xl font-bold text-foreground">Negotiation Timeline</h2>
@@ -34,11 +39,11 @@ export default function OrderNegotiationTimeline({ negotiations, role, acceptedB
             </div>
           </div>
         ))}
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+        <div className={`rounded-xl border p-4 ${isOrderCancelled ? "border-destructive/30 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
-              Accepted by: {acceptedBy}
+              <CheckCircle2 className={`h-4 w-4 ${isOrderCancelled ? "text-destructive" : "text-primary"}`} />
+              {finalStatusLabel}: {finalStatus}
             </p>
           </div>
         </div>
