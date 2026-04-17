@@ -139,7 +139,7 @@ public class DashboardService {
 
     private FarmerKpisResponse getFarmerKpis(Long farmerId) {
         Long totalActiveListings = listingRepository.countByFarmerIdAndStatus(farmerId, ListingStatus.ACTIVE);
-        Long activeOrders = orderRepository.countByFarmerIdAndStatus(farmerId, OrderStatus.ACTIVE);
+        Long activeOrders = orderRepository.countByFarmerIdAndStatus(farmerId, OrderStatus.ACTIVE) + orderRepository.countByFarmerIdAndStatus(farmerId, OrderStatus.CONFIRMED);
         Long totalCompletedOrders = orderRepository.countByFarmerIdAndStatus(farmerId, OrderStatus.COMPLETED);
         Long totalCancelledOrders = orderRepository.countByFarmerIdAndStatus(farmerId, OrderStatus.CANCELLED);
 
@@ -163,7 +163,7 @@ public class DashboardService {
         );
         Long totalActiveNegotiations = negotiationRepository.countByParticipantIdAndStatusIn(buyerId, activeNegotiationStatuses);
 
-        Long activeOrders = orderRepository.countByBuyerIdAndStatus(buyerId, OrderStatus.ACTIVE);
+        Long activeOrders = orderRepository.countByBuyerIdAndStatus(buyerId, OrderStatus.ACTIVE) + orderRepository.countByBuyerIdAndStatus(buyerId, OrderStatus.CONFIRMED);
         Long totalCompletedOrders = orderRepository.countByBuyerIdAndStatus(buyerId, OrderStatus.COMPLETED);
         Long totalCancelledOrders = orderRepository.countByBuyerIdAndStatus(buyerId, OrderStatus.CANCELLED);
 
@@ -410,7 +410,7 @@ public class DashboardService {
         List<Order> activeOrders = orderRepository.findAllByBuyerIdOrFarmerIdAndStatusInOrderByUpdatedAtDesc(
                 currentUser.getId(),
                 currentUser.getId(),
-                List.of(OrderStatus.ACTIVE)
+                List.of(OrderStatus.ACTIVE, OrderStatus.CONFIRMED)
         );
 
         for (Order order : activeOrders) {
