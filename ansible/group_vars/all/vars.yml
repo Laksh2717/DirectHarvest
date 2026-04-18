@@ -1,5 +1,5 @@
 # ── Domain ────────────────────────────────────────────────────────────────────
-domain: "3.108.9.48.nip.io"
+domain: "<ec2_ip>.nip.io"
 app_dir: "/home/ubuntu/DirectHarvest"
 aws_region: "ap-south-1"
 s3_bucket: "directharvest-logs"
