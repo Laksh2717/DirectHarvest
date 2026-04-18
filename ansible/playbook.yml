@@ -1,0 +1,248 @@
+---
+- name: Deploy DirectHarvest on EC2
+  hosts: directharvest
+  become: true
+
+  tasks:
+
+    # ── 1. System update ──────────────────────────────────────────────────────
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    # ── 2. Install system packages ────────────────────────────────────────────
+    - name: Install required packages
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+          - git
+          - wget
+          - unzip
+        state: present
+
+    # ── 3. Install Docker ─────────────────────────────────────────────────────
+    - name: Create Docker keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+          -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+      args:
+        creates: /etc/apt/keyrings/docker.asc
+
+    - name: Add Docker apt repository
+      shell: |
+        echo \
+          "deb [arch=$(dpkg --print-architecture) \
+          signed-by=/etc/apt/keyrings/docker.asc] \
+          https://download.docker.com/linux/ubuntu \
+          $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+          tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Update apt cache after Docker repo
+      apt:
+        update_cache: yes
+
+    - name: Install Docker and Compose plugin
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Enable Docker on boot
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Reset SSH connection to apply docker group membership
+      meta: reset_connection
+
+    # ── 4. Install AWS CLI ────────────────────────────────────────────────────
+    - name: Download AWS CLI v2
+      get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
+        mode: '0644'
+
+    - name: Unzip AWS CLI
+      unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp/
+        remote_src: yes
+        creates: /tmp/aws
+
+    - name: Install AWS CLI
+      shell: /tmp/aws/install
+      args:
+        creates: /usr/local/bin/aws
+
+    # ── 5. Clone repository ───────────────────────────────────────────────────
+    - name: Clone DirectHarvest repository
+      git:
+        repo: "https://github.com/Laksh2717/DirectHarvest.git"
+        dest: "{{ app_dir }}"
+        version: main
+        force: yes
+      become_user: ubuntu
+
+    # ── 6. Create root .env file ──────────────────────────────────────────────
+    - name: Create .env file from template
+      template:
+        src: templates/env.j2
+        dest: "{{ app_dir }}/.env"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+
+    # ── 7. Switch frontend image tag to ec2 ───────────────────────────────────
+    - name: Use ec2 frontend image in docker-compose
+      replace:
+        path: "{{ app_dir }}/docker-compose.yml"
+        regexp: 'laksh2717/frontend:latest'
+        replace: 'laksh2717/frontend:ec2'
+
+    # ── 8. Pull and start Docker containers ───────────────────────────────────
+    - name: Pull Docker images from DockerHub
+      shell: docker compose pull
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+
+    - name: Start containers
+      shell: docker compose up -d
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+
+    - name: Wait for backend to be ready
+      wait_for:
+        host: localhost
+        port: 8080
+        delay: 15
+        timeout: 120
+
+    - name: Wait for frontend to be ready
+      wait_for:
+        host: localhost
+        port: 3000
+        delay: 5
+        timeout: 60
+
+    # ── 09. Configure Nginx ───────────────────────────────────────────────────
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Deploy Nginx config
+      template:
+        src: templates/nginx.conf.j2
+        dest: /etc/nginx/sites-available/directharvest
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable Nginx site
+      file:
+        src: /etc/nginx/sites-available/directharvest
+        dest: /etc/nginx/sites-enabled/directharvest
+        state: link
+
+    - name: Test Nginx config
+      shell: nginx -t
+
+    - name: Start and enable Nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    # ── 10. SSL via Certbot ───────────────────────────────────────────────────
+    - name: Obtain SSL certificate
+      shell: |
+        certbot --nginx \
+          -d {{ domain }} \
+          --non-interactive \
+          --agree-tos \
+          --email {{ vault_CERTBOT_EMAIL }} \
+          --redirect
+      args:
+        creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+
+    - name: Reload Nginx after SSL
+      systemd:
+        name: nginx
+        state: reloaded
+
+    # ── 11. S3 log upload script ──────────────────────────────────────────────
+    - name: Deploy nginx-logs-to-s3 script
+      template:
+        src: templates/nginx-logs-to-s3.sh.j2
+        dest: /usr/local/bin/nginx-logs-to-s3.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure logrotate to upload logs to S3
+      blockinfile:
+        path: /etc/logrotate.d/nginx
+        insertafter: "invoke-rc.d nginx rotate"
+        block: "        /usr/local/bin/nginx-logs-to-s3.sh"
+        marker: "# {mark} ANSIBLE MANAGED S3 UPLOAD"
+
+    # ── 12. CloudWatch Agent ──────────────────────────────────────────────────
+    - name: Download CloudWatch agent
+      get_url:
+        url: https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+        dest: /tmp/amazon-cloudwatch-agent.deb
+        mode: '0644'
+
+    - name: Install CloudWatch agent
+      apt:
+        deb: /tmp/amazon-cloudwatch-agent.deb
+        state: present
+
+    - name: Deploy CloudWatch agent config
+      template:
+        src: templates/cloudwatch-config.json.j2
+        dest: /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-config.json
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Start CloudWatch agent
+      shell: |
+        /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+          -a fetch-config \
+          -m ec2 \
+          -c file:/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-config.json \
+          -s
+
+    - name: Enable CloudWatch agent on boot
+      systemd:
+        name: amazon-cloudwatch-agent
+        enabled: yes
+        state: started

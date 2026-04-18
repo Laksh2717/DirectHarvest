@@ -1,0 +1,16 @@
+#!/bin/bash
+
+export HOME=/root
+export AWS_DEFAULT_REGION="{{ aws_region }}"
+
+BUCKET="s3://{{ s3_bucket }}"
+REGION="{{ aws_region }}"
+LOGDIR="/var/log/nginx"
+DATE=$(date +%F)
+
+for f in "$LOGDIR"/*.log.1 "$LOGDIR"/*.log.1.gz; do
+    [ -f "$f" ] || continue
+    filename=$(basename "$f")
+    /usr/local/bin/aws s3 cp "$f" "$BUCKET/nginx/$DATE/$filename" --region "$REGION"
+    echo "$(date): Uploaded $filename to S3" >> /var/log/nginx-s3-upload.log
+done
